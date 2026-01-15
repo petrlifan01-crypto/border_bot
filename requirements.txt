@@ -5,7 +5,5 @@ pydantic
 requests
 aiosqlite
 jinja2
-
 python-multipart
 httpx
-
