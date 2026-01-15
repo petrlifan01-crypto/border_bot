@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Border Monitor Lite</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        ::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen pb-10">
+
+    <!-- Шапка (Фіксована) -->
+    <div class="bg-white pt-4 pb-2 px-4 shadow-sm sticky top-0 z-20">
+        <div class="flex justify-between items-center max-w-md mx-auto mb-3">
+            <h1 class="text-xl font-extrabold text-slate-900">Кордон<span class="text-blue-600">.Online</span></h1>
+            <div class="flex items-center gap-2">
+                <span class="relative flex h-2.5 w-2.5">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
+                </span>
+                <span class="text-xs font-bold text-slate-500">LIVE</span>
+            </div>
+        </div>
+
+        <!-- Вкладки (Tabs) -->
+        <div class="flex p-1 bg-slate-100 rounded-xl max-w-md mx-auto">
+            <button onclick="switchTab('cars')" id="tab-cars" class="flex-1 py-2 text-sm font-bold rounded-lg shadow-sm bg-white text-blue-600 transition-all">
+                🚗 Легкові
+            </button>
+            <button onclick="switchTab('trucks')" id="tab-trucks" class="flex-1 py-2 text-sm font-medium rounded-lg text-slate-500 hover:text-slate-700 transition-all">
+                🚛 Фури
+            </button>
+            <button onclick="switchTab('buses')" id="tab-buses" class="flex-1 py-2 text-sm font-medium rounded-lg text-slate-500 hover:text-slate-700 transition-all">
+                🚌 Буси
+            </button>
+        </div>
+    </div>
+
+    <!-- Список карток -->
+    <div class="max-w-md mx-auto px-4 mt-4 space-y-4" id="list">
+        <!-- Лоадер -->
+        <div class="text-center py-10 text-slate-400">
+            <svg class="animate-spin h-8 w-8 mx-auto mb-2 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+            Завантаження даних...
+        </div>
+    </div>
+
+    <div class="text-center mt-6 text-xs text-slate-400">
+        Дані оновлюються автоматично кожні 15 сек.
+    </div>
+
+    <!-- Модальне вікно (Просте) -->
+    <div id="reportModal" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm hidden flex items-center justify-center px-4">
+        <div class="bg-white w-full max-w-sm p-6 rounded-2xl shadow-2xl transform transition-all scale-100">
+            <h3 class="text-lg font-bold mb-1">Оновити дані</h3>
+            <p class="text-sm text-slate-500 mb-4" id="modalName">Назва пункту</p>
+            
+            <label class="block text-xs font-bold text-slate-700 uppercase mb-2">Скільки авто ви бачите?</label>
+            <input type="number" id="carsInput" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-lg font-bold outline-none focus:border-blue-500 mb-4" placeholder="0">
+            
+            <div class="flex gap-3">
+                <button onclick="closeModal()" class="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl">Скасувати</button>
+                <button onclick="sendReport()" class="flex-1 py-3 bg-blue-600 text-white font-bold rounded-xl shadow-lg shadow-blue-200">Відправити</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+
+        const flags = { 'PL': '🇵🇱', 'RO': '🇷🇴', 'SK': '🇸🇰', 'HU': '🇭🇺' };
+        let currentType = 'cars'; // 'cars', 'trucks', 'buses'
+        let selectedId = null;
+
+        function switchTab(type) {
+            currentType = type;
+            // Логіка перемикання кнопок
+            const tabs = ['cars', 'trucks', 'buses'];
+            tabs.forEach(t => {
+                const btn = document.getElementById('tab-' + t);
+                if (t === type) {
+                    btn.className = "flex-1 py-2 text-sm font-bold rounded-lg shadow-sm bg-white text-blue-600 transition-all";
+                } else {
+                    btn.className = "flex-1 py-2 text-sm font-medium rounded-lg text-slate-500 hover:text-slate-700 transition-all";
+                }
+            });
+            loadData();
+        }
+
+        async function loadData() {
+            try {
+                const res = await fetch('/api/data');
+                const data = await res.json();
+                renderList(data);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        function renderList(data) {
+            const container = document.getElementById('list');
+            container.innerHTML = '';
+
+            data.forEach(cp => {
+                // Вибір правильної колонки даних
+                let count = 0;
+                let label = '';
+                
+                if (currentType === 'cars') { count = cp.cars_official; label = 'авто'; }
+                else if (currentType === 'trucks') { count = cp.trucks_official || 0; label = 'фур'; }
+                else { count = cp.buses_official || 0; label = 'бусів'; }
+
+                // Кольорове кодування
+                let statusClass = 'bg-green-100 text-green-700';
+                let statusText = 'Вільно';
+                
+                // Поріг для фур вищий, ніж для легкових
+                const limitWarning = currentType === 'trucks' ? 150 : 50;
+                const limitCritical = currentType === 'trucks' ? 400 : 120;
+
+                if (count > limitCritical) {
+                    statusClass = 'bg-red-100 text-red-700';
+                    statusText = 'Велика черга';
+                } else if (count > limitWarning) {
+                    statusClass = 'bg-yellow-100 text-yellow-700';
+                    statusText = 'Тягучка';
+                }
+
+                const flag = flags[cp.country] || '🇪🇺';
+
+                const html = `
+                    <div class="bg-white p-5 rounded-2xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.1)] border border-slate-100">
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="flex gap-3 items-center">
+                                <span class="text-2xl">${flag}</span>
+                                <div>
+                                    <h2 class="font-bold text-slate-800 text-lg leading-tight">${cp.name}</h2>
+                                    <p class="text-xs text-slate-400 mt-0.5">Оновлено 2 хв тому</p>
+                                </div>
+                            </div>
+                            <span class="px-2.5 py-1 rounded-lg text-xs font-bold ${statusClass}">
+                                ${statusText}
+                            </span>
+                        </div>
+
+                        <div class="flex items-end justify-between">
+                            <div>
+                                <div class="text-4xl font-extrabold text-slate-900 tracking-tight">
+                                    ${count} <span class="text-lg font-medium text-slate-400">${label}</span>
+                                </div>
+                            </div>
+                            <button onclick="openModal('${cp.id}', '${cp.name}')" class="bg-slate-50 text-blue-600 font-semibold px-4 py-2 rounded-xl text-sm border border-slate-100 active:scale-95 transition">
+                                📍 Я тут
+                            </button>
+                        </div>
+                    </div>
+                `;
+                container.innerHTML += html;
+            });
+        }
+
+        function openModal(id, name) {
+            selectedId = id;
+            document.getElementById('modalName').innerText = name;
+            document.getElementById('reportModal').classList.remove('hidden');
+        }
+        function closeModal() {
+            document.getElementById('reportModal').classList.add('hidden');
+        }
+        
+        async function sendReport() {
+            const val = document.getElementById('carsInput').value;
+            if(!val) return;
+
+            // Відправка на сервер (фейкова поки що)
+            await fetch('/api/report', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ checkpoint_id: selectedId, cars_count: parseInt(val) })
+            });
+
+            closeModal();
+            tg.showPopup({ title: 'Дякуємо!', message: 'Дані успішно відправлені.' });
+            loadData();
+        }
+
+        // Запуск
+        loadData();
+        setInterval(loadData, 15000);
+    </script>
+</body>
+</html>
